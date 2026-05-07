@@ -83,13 +83,132 @@ export function removeKeyboard() {
   return { remove_keyboard: true };
 }
 
-// Главное меню
+// Главное меню (новая версия с Мои заказы / Реферал / Помощь)
 export function mainMenuKeyboard() {
   return inlineKeyboard([
-    [{ text: '🌱 Покос газона',          callback_data: 'svc:lawn_mowing' }],
-    [{ text: '🌿 Скарификация / аэрация', callback_data: 'svc:scarification' }],
-    [{ text: '🪓 Расчистка участка',      callback_data: 'svc:land_clearing' }],
-    [{ text: '🏊 Чистка / сборка бассейна', callback_data: 'svc:pool_cleaning' }],
-    [{ text: '☎️ Связаться с оператором', callback_data: 'op:contact' }],
+    [
+      { text: '🌱 Покос',         callback_data: 'svc:lawn_mowing' },
+      { text: '🌿 Скарификация',  callback_data: 'svc:scarification' },
+    ],
+    [
+      { text: '🪓 Расчистка',     callback_data: 'svc:land_clearing' },
+      { text: '🏊 Бассейн',       callback_data: 'svc:pool_cleaning' },
+    ],
+    [
+      { text: '📋 Мои заказы',    callback_data: 'nav:orders' },
+      { text: '🎁 Пригласить друга', callback_data: 'nav:referral' },
+    ],
+    [
+      { text: '❔ Помощь',        callback_data: 'nav:help' },
+      { text: '☎️ Оператор',      callback_data: 'nav:operator' },
+    ],
+  ]);
+}
+
+// Клавиатура выбора площади (для покоса/скарификации/расчистки)
+export function areaBucketsKeyboard(scope: 'lawn' | 'land' | 'pool' = 'lawn') {
+  return inlineKeyboard([
+    [
+      { text: 'до 5 соток', callback_data: `area:${scope}:5`  },
+      { text: '5–10',       callback_data: `area:${scope}:10` },
+    ],
+    [
+      { text: '10–20',      callback_data: `area:${scope}:20` },
+      { text: '20+',        callback_data: `area:${scope}:30` },
+    ],
+    [{ text: '✏️ Указать вручную', callback_data: `area:${scope}:custom` }],
+    [{ text: '◀️ В меню',         callback_data: 'nav:home' }],
+  ]);
+}
+
+// Клавиатура районов
+export function districtKeyboard() {
+  return inlineKeyboard([
+    [
+      { text: 'Чкаловский',  callback_data: 'dist:chkalovskiy' },
+      { text: 'Кировский',   callback_data: 'dist:kirovskiy' },
+    ],
+    [
+      { text: 'Ленинский',   callback_data: 'dist:leninskiy' },
+      { text: 'Октябрьский', callback_data: 'dist:oktyabrskiy' },
+    ],
+    [
+      { text: 'Советский',   callback_data: 'dist:sovetskiy' },
+      { text: '✏️ Другой',   callback_data: 'dist:other' },
+    ],
+    [{ text: '◀️ Назад', callback_data: 'back' }],
+  ]);
+}
+
+// Клавиатура «Когда удобно»
+export function whenKeyboard() {
+  return inlineKeyboard([
+    [
+      { text: 'Сегодня',       callback_data: 'when:today' },
+      { text: 'Завтра',        callback_data: 'when:tomorrow' },
+    ],
+    [
+      { text: 'Эти выходные',  callback_data: 'when:weekend' },
+      { text: 'На этой неделе', callback_data: 'when:thisweek' },
+    ],
+    [{ text: '✏️ Другая дата', callback_data: 'when:custom' }],
+    [{ text: '◀️ Назад', callback_data: 'back' }],
+  ]);
+}
+
+// Клавиатура подтверждения заказа
+export function confirmKeyboard() {
+  return inlineKeyboard([
+    [{ text: '✅ Подтвердить',    callback_data: 'confirm:ok' }],
+    [
+      { text: '✏️ Изменить дату',   callback_data: 'edit:when' },
+      { text: '✏️ Изменить район',  callback_data: 'edit:district' },
+    ],
+    [{ text: '❌ Отменить',       callback_data: 'confirm:cancel' }],
+  ]);
+}
+
+// Клавиатура после успешного оформления
+export function postOrderKeyboard() {
+  return inlineKeyboard([
+    [{ text: '📋 Мои заказы', callback_data: 'nav:orders' }],
+    [{ text: '🎁 Пригласить друга и получить скидку', callback_data: 'nav:referral' }],
+    [{ text: '🏠 В меню', callback_data: 'nav:home' }],
+  ]);
+}
+
+// Кнопка возврата
+export function backToHomeKeyboard() {
+  return inlineKeyboard([[{ text: '🏠 В меню', callback_data: 'nav:home' }]]);
+}
+
+// Кнопки на карточке активного заказа (включаются/выключаются по статусу)
+export function orderCardKeyboard(opts: {
+  leadId: string;
+  canEditDate: boolean;
+  canCancel: boolean;
+  isCompleted: boolean;
+}) {
+  const rows: InlineButton[][] = [];
+  if (opts.canEditDate && !opts.isCompleted) {
+    rows.push([{ text: '✏️ Изменить дату', callback_data: `lead:edit_date:${opts.leadId}` }]);
+  }
+  rows.push([{ text: '📞 Связаться', callback_data: `lead:contact:${opts.leadId}` }]);
+  rows.push([{ text: '🔁 Повторить такой же', callback_data: `lead:repeat:${opts.leadId}` }]);
+  if (opts.canCancel && !opts.isCompleted) {
+    rows.push([{ text: '❌ Отменить', callback_data: `lead:cancel:${opts.leadId}` }]);
+  }
+  return inlineKeyboard(rows);
+}
+
+// Клавиатура реферального экрана
+export function referralKeyboard(shareLink: string, shareText: string) {
+  return inlineKeyboard([
+    [{
+      text: '📤 Поделиться ссылкой',
+      url:  `https://t.me/share/url?url=${encodeURIComponent(shareLink)}&text=${encodeURIComponent(shareText)}`,
+    }],
+    [{ text: '📋 Мои рефералы', callback_data: 'nav:referral_list' }],
+    [{ text: '🏠 В меню',       callback_data: 'nav:home' }],
   ]);
 }

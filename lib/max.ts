@@ -64,12 +64,114 @@ export function sendMaxMessage(params: {
   });
 }
 
+// MAX — кнопки без декоративных эмодзи (более «строгий» стиль платформы)
 export function maxMainMenuButtons(): MaxButton[][] {
   return [
-    [{ type: 'callback', text: '🌱 Покос газона',          payload: 'svc:lawn_mowing' }],
-    [{ type: 'callback', text: '🌿 Скарификация / аэрация', payload: 'svc:scarification' }],
-    [{ type: 'callback', text: '🪓 Расчистка участка',      payload: 'svc:land_clearing' }],
-    [{ type: 'callback', text: '🏊 Чистка / сборка бассейна', payload: 'svc:pool_cleaning' }],
-    [{ type: 'callback', text: '☎️ Связаться с оператором', payload: 'op:contact' }],
+    [
+      { type: 'callback', text: 'Покос газона',           payload: 'svc:lawn_mowing' },
+      { type: 'callback', text: 'Скарификация',           payload: 'svc:scarification' },
+    ],
+    [
+      { type: 'callback', text: 'Расчистка участка',      payload: 'svc:land_clearing' },
+      { type: 'callback', text: 'Бассейн',                payload: 'svc:pool_cleaning' },
+    ],
+    [
+      { type: 'callback', text: 'Мои заказы',             payload: 'nav:orders' },
+      { type: 'callback', text: 'Пригласить друга',       payload: 'nav:referral' },
+    ],
+    [
+      { type: 'callback', text: 'Помощь',                 payload: 'nav:help' },
+      { type: 'callback', text: 'Оператор',               payload: 'nav:operator' },
+    ],
+  ];
+}
+
+export function maxAreaBucketsButtons(scope: 'lawn' | 'land' | 'pool' = 'lawn'): MaxButton[][] {
+  return [
+    [
+      { type: 'callback', text: 'до 5 соток', payload: `area:${scope}:5`  },
+      { type: 'callback', text: '5–10',        payload: `area:${scope}:10` },
+    ],
+    [
+      { type: 'callback', text: '10–20',       payload: `area:${scope}:20` },
+      { type: 'callback', text: '20+',         payload: `area:${scope}:30` },
+    ],
+    [{ type: 'callback', text: 'Указать вручную', payload: `area:${scope}:custom` }],
+    [{ type: 'callback', text: 'В меню',           payload: 'nav:home' }],
+  ];
+}
+
+export function maxDistrictButtons(): MaxButton[][] {
+  return [
+    [
+      { type: 'callback', text: 'Чкаловский',  payload: 'dist:chkalovskiy' },
+      { type: 'callback', text: 'Кировский',   payload: 'dist:kirovskiy' },
+    ],
+    [
+      { type: 'callback', text: 'Ленинский',   payload: 'dist:leninskiy' },
+      { type: 'callback', text: 'Октябрьский', payload: 'dist:oktyabrskiy' },
+    ],
+    [
+      { type: 'callback', text: 'Советский',   payload: 'dist:sovetskiy' },
+      { type: 'callback', text: 'Другой',      payload: 'dist:other' },
+    ],
+    [{ type: 'callback', text: 'Назад', payload: 'back' }],
+  ];
+}
+
+export function maxWhenButtons(): MaxButton[][] {
+  return [
+    [
+      { type: 'callback', text: 'Сегодня',         payload: 'when:today' },
+      { type: 'callback', text: 'Завтра',          payload: 'when:tomorrow' },
+    ],
+    [
+      { type: 'callback', text: 'Эти выходные',    payload: 'when:weekend' },
+      { type: 'callback', text: 'На этой неделе',  payload: 'when:thisweek' },
+    ],
+    [{ type: 'callback', text: 'Другая дата',      payload: 'when:custom' }],
+    [{ type: 'callback', text: 'Назад',            payload: 'back' }],
+  ];
+}
+
+export function maxConfirmButtons(): MaxButton[][] {
+  return [
+    [{ type: 'callback', text: 'Подтвердить',      payload: 'confirm:ok' }],
+    [
+      { type: 'callback', text: 'Изменить дату',   payload: 'edit:when' },
+      { type: 'callback', text: 'Изменить район',  payload: 'edit:district' },
+    ],
+    [{ type: 'callback', text: 'Отменить',         payload: 'confirm:cancel' }],
+  ];
+}
+
+export function maxPostOrderButtons(): MaxButton[][] {
+  return [
+    [{ type: 'callback', text: 'Мои заказы',       payload: 'nav:orders' }],
+    [{ type: 'callback', text: 'Пригласить друга', payload: 'nav:referral' }],
+    [{ type: 'callback', text: 'В меню',           payload: 'nav:home' }],
+  ];
+}
+
+export function maxOrderCardButtons(opts: {
+  leadId: string; canEditDate: boolean; canCancel: boolean; isCompleted: boolean;
+}): MaxButton[][] {
+  const rows: MaxButton[][] = [];
+  if (opts.canEditDate && !opts.isCompleted) {
+    rows.push([{ type: 'callback', text: 'Изменить дату', payload: `lead:edit_date:${opts.leadId}` }]);
+  }
+  rows.push([{ type: 'callback', text: 'Связаться',       payload: `lead:contact:${opts.leadId}` }]);
+  rows.push([{ type: 'callback', text: 'Повторить такой же', payload: `lead:repeat:${opts.leadId}` }]);
+  if (opts.canCancel && !opts.isCompleted) {
+    rows.push([{ type: 'callback', text: 'Отменить',      payload: `lead:cancel:${opts.leadId}` }]);
+  }
+  return rows;
+}
+
+export function maxReferralButtons(shareLink: string): MaxButton[][] {
+  return [
+    [{ type: 'link',     text: 'Поделиться ссылкой', url: shareLink }],
+    [{ type: 'callback', text: 'Мои рефералы',       payload: 'nav:referral_list' }],
+    [{ type: 'callback', text: 'В меню',             payload: 'nav:home' }],
   ];
 }

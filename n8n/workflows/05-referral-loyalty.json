@@ -1,0 +1,173 @@
+{
+  "name": "Premium / Referral notifications & loyalty hints",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } },
+      "name": "Cron (every 5m)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select e.id, e.payload, e.contact_id as referrer_contact_id, e.created_at,\n       r.invitee_contact_id, inv.full_name as invitee_name,\n       ref_ci.channel as referrer_channel, ref_ci.external_id as referrer_external_id,\n       inv_ci.channel as invitee_channel,  inv_ci.external_id as invitee_external_id\n  from public.events e\n  join public.referrals r on r.id = (e.payload->>'invitee_contact_id')::uuid\n  join public.contacts inv on inv.id = r.invitee_contact_id\n  left join public.contact_identities ref_ci on ref_ci.contact_id = e.contact_id and ref_ci.is_blocked = false\n  left join public.contact_identities inv_ci on inv_ci.contact_id = r.invitee_contact_id and inv_ci.is_blocked = false\n where e.type = 'referral.qualified'\n   and e.created_at > now() - interval '6 minutes'\n order by e.created_at asc"
+      },
+      "name": "Postgres (qualified referrals)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 220],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "SplitInBatches (1)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 220]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "referrerText",
+              "value": "✅ {{$json.invitee_name || 'Ваш друг'}}, ваш друг выполнил заказ!\nНа ваш счёт начислено 500 ₽ — скидка применится автоматически в следующем заказе."
+            },
+            {
+              "name": "inviteeText",
+              "value": "🎁 Готово! Заказ выполнен — на ваш счёт начислено 500 ₽ скидки за то, что вы пришли по приглашению. Скидка применится в следующем заказе."
+            },
+            {
+              "name": "ownerText",
+              "value": "🎉 Реферал сработал!\nКто привёл: {{$json.referrer_contact_id}}\nКто пришёл: {{$json.invitee_name}}\nКаждому начислено 500 ₽."
+            }
+          ]
+        }
+      },
+      "name": "Set (texts)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.referrer_channel}}", "operation": "equals", "value2": "telegram" }
+          ]
+        }
+      },
+      "name": "IF referrer telegram",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 120]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.referrer_external_id}}",
+        "text": "={{$json.referrerText}}",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "name": "Telegram (referrer)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1340, 60],
+      "credentials": { "telegramApi": { "id": "tg-main", "name": "Telegram Main Bot" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.MAX_API_URL}}/messages?access_token={{$env.MAX_BOT_TOKEN}}&user_id={{$json.referrer_external_id}}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"{{$json.referrerText}}\" }"
+      },
+      "name": "MAX (referrer)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.invitee_channel}}", "operation": "equals", "value2": "telegram" }
+          ]
+        }
+      },
+      "name": "IF invitee telegram",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 320]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.invitee_external_id}}",
+        "text": "={{$json.inviteeText}}",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "name": "Telegram (invitee)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1340, 260],
+      "credentials": { "telegramApi": { "id": "tg-main", "name": "Telegram Main Bot" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.MAX_API_URL}}/messages?access_token={{$env.MAX_BOT_TOKEN}}&user_id={{$json.invitee_external_id}}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"{{$json.inviteeText}}\" }"
+      },
+      "name": "MAX (invitee)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 380]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_OWNER_CHAT_ID}}",
+        "text": "={{$json.ownerText}}",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "name": "Telegram (notify owner)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1340, 500],
+      "credentials": { "telegramApi": { "id": "tg-owner", "name": "Telegram Owner Bot" } }
+    }
+  ],
+  "connections": {
+    "Cron (every 5m)":              { "main": [[{ "node": "Postgres (qualified referrals)", "type": "main", "index": 0 }]] },
+    "Postgres (qualified referrals)": { "main": [[{ "node": "SplitInBatches (1)", "type": "main", "index": 0 }]] },
+    "SplitInBatches (1)":           { "main": [[{ "node": "Set (texts)", "type": "main", "index": 0 }]] },
+    "Set (texts)": {
+      "main": [[
+        { "node": "IF referrer telegram", "type": "main", "index": 0 },
+        { "node": "IF invitee telegram",  "type": "main", "index": 0 },
+        { "node": "Telegram (notify owner)", "type": "main", "index": 0 }
+      ]]
+    },
+    "IF referrer telegram": {
+      "main": [
+        [{ "node": "Telegram (referrer)", "type": "main", "index": 0 }],
+        [{ "node": "MAX (referrer)",      "type": "main", "index": 0 }]
+      ]
+    },
+    "IF invitee telegram": {
+      "main": [
+        [{ "node": "Telegram (invitee)",  "type": "main", "index": 0 }],
+        [{ "node": "MAX (invitee)",       "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["premium", "referral", "loyalty"]
+}

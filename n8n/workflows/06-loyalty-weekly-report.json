@@ -1,0 +1,59 @@
+{
+  "name": "Premium / Weekly loyalty & referral report",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1" }] } },
+      "name": "Cron (Mon 09:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with new_qualified as (\n  select count(*)::int as cnt\n    from public.referrals r\n   where r.qualified_at >= now() - interval '7 days'\n),\nbalances as (\n  select coalesce(sum(bonus_rub),0)::int as total_balance\n    from public.loyalty_balances\n),\ntop_referrers as (\n  select c.full_name, count(r.*) filter (where r.status='qualified')::int as qualified,\n         count(r.*)::int as total\n    from public.contacts c\n    join public.referrals r on r.referrer_contact_id = c.id\n   where r.created_at >= now() - interval '30 days'\n   group by c.id, c.full_name\n   order by qualified desc nulls last, total desc\n   limit 5\n),\nrepeat_orders as (\n  select count(*)::int as cnt\n    from public.leads\n   where repeat_of is not null\n     and created_at >= now() - interval '7 days'\n)\nselect (select cnt from new_qualified) as qualified_this_week,\n       (select cnt from repeat_orders) as repeat_orders_this_week,\n       (select total_balance from balances) as total_loyalty_rub,\n       (select string_agg(format('• %s — %s/%s', full_name, qualified, total), E'\\n') from top_referrers) as top_text;"
+      },
+      "name": "Postgres (digest)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "report",
+              "value": "📊 <b>Премиум — отчёт за неделю</b>\n\nКвалифицированных рефералов: <b>{{$json.qualified_this_week}}</b>\nПовторных заказов: <b>{{$json.repeat_orders_this_week}}</b>\nОбщий бонусный баланс клиентов: <b>{{$json.total_loyalty_rub}} ₽</b>\n\n<b>Топ рефереров (за 30 дней):</b>\n{{$json.top_text || 'пока нет данных'}}"
+            }
+          ]
+        }
+      },
+      "name": "Set (report)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_OWNER_CHAT_ID}}",
+        "text": "={{$json.report}}",
+        "additionalFields": { "parse_mode": "HTML", "disable_web_page_preview": true }
+      },
+      "name": "Telegram (owner digest)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [900, 300],
+      "credentials": { "telegramApi": { "id": "tg-owner", "name": "Telegram Owner Bot" } }
+    }
+  ],
+  "connections": {
+    "Cron (Mon 09:00)":  { "main": [[{ "node": "Postgres (digest)", "type": "main", "index": 0 }]] },
+    "Postgres (digest)": { "main": [[{ "node": "Set (report)",      "type": "main", "index": 0 }]] },
+    "Set (report)":      { "main": [[{ "node": "Telegram (owner digest)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["premium", "loyalty", "report"]
+}

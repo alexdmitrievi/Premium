@@ -21,6 +21,10 @@ export const env = {
   TELEGRAM_BOT_TOKEN: req('TELEGRAM_BOT_TOKEN'),
   TELEGRAM_WEBHOOK_SECRET: req('TELEGRAM_WEBHOOK_SECRET'),
   TELEGRAM_OWNER_CHAT_ID: opt('TELEGRAM_OWNER_CHAT_ID'),
+  // username бота (без @) — нужен для генерации deep-link реферала t.me/<bot>?start=ref_XXX
+  TELEGRAM_BOT_USERNAME: opt('TELEGRAM_BOT_USERNAME', 'premium_omsk_bot'),
+  // username бота в MAX (для реферальной ссылки max.ru/<bot>?start=ref_XXX)
+  MAX_BOT_USERNAME: opt('MAX_BOT_USERNAME', 'premium_omsk_bot'),
 
   // MAX
   MAX_BOT_TOKEN: opt('MAX_BOT_TOKEN'),
