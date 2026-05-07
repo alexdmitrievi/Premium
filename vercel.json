@@ -1,0 +1,39 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "framework": null,
+  "buildCommand": "npm run typecheck",
+  "regions": ["fra1"],
+  "functions": {
+    "api/telegram/webhook.ts": {
+      "runtime": "@vercel/node@3.2.0",
+      "memory": 256,
+      "maxDuration": 10
+    },
+    "api/max/webhook.ts": {
+      "runtime": "@vercel/node@3.2.0",
+      "memory": 256,
+      "maxDuration": 10
+    },
+    "api/n8n/lead-created.ts": {
+      "runtime": "@vercel/node@3.2.0",
+      "memory": 256,
+      "maxDuration": 10
+    },
+    "api/admin/health.ts": {
+      "runtime": "@vercel/node@3.2.0",
+      "memory": 128,
+      "maxDuration": 5
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    }
+  ]
+}

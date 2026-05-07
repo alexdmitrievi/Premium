@@ -1,0 +1,112 @@
+{
+  "name": "Premium / Recurring lawn mowing (cron)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1,3,5" }]
+        }
+      },
+      "name": "Cron (Mon/Wed/Fri 09:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from public.segment_for_recurring_lawn_mowing(12, 'recurring_mowing', null);"
+      },
+      "name": "Postgres (segment)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": { "batchSize": 20, "options": { "reset": false } },
+      "name": "SplitInBatches (20)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "name": "Wait (1s between msgs)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.channel}}", "operation": "equals", "value2": "telegram" }
+          ]
+        }
+      },
+      "name": "IF (telegram?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.external_id}}",
+        "text": "🌱 Здравствуйте, {{$json.full_name || 'друзья'}}!\nВаш газон в {{$json.district || 'Омске'}} уже отрос — пора снова на покос.\nЗаписать вас на ближайшие дни? Ответьте «да» или нажмите /start.",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "name": "Telegram (send)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1340, 200],
+      "credentials": { "telegramApi": { "id": "tg-main", "name": "Telegram Main Bot" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.MAX_API_URL}}/messages?access_token={{$env.MAX_BOT_TOKEN}}&user_id={{$json.external_id}}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"🌱 Здравствуйте, {{$json.full_name || 'друзья'}}! Пора снова на покос — записать вас?\" }"
+      },
+      "name": "HTTP (MAX send)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.campaign_recipients (campaign_id, contact_id, channel, status, sent_at)\nselect c.id, '{{$json.contact_id}}'::uuid, '{{$json.channel}}'::messenger_channel, 'sent', now()\n  from public.campaigns c where c.code = 'recurring_mowing'\non conflict (campaign_id, contact_id, channel) do update set status='sent', sent_at=now();"
+      },
+      "name": "Postgres (mark sent)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 300],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    }
+  ],
+  "connections": {
+    "Cron (Mon/Wed/Fri 09:00)": { "main": [[{ "node": "Postgres (segment)", "type": "main", "index": 0 }]] },
+    "Postgres (segment)":       { "main": [[{ "node": "SplitInBatches (20)", "type": "main", "index": 0 }]] },
+    "SplitInBatches (20)":      { "main": [[{ "node": "Wait (1s between msgs)", "type": "main", "index": 0 }]] },
+    "Wait (1s between msgs)":   { "main": [[{ "node": "IF (telegram?)", "type": "main", "index": 0 }]] },
+    "IF (telegram?)": {
+      "main": [
+        [{ "node": "Telegram (send)", "type": "main", "index": 0 }],
+        [{ "node": "HTTP (MAX send)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram (send)":  { "main": [[{ "node": "Postgres (mark sent)", "type": "main", "index": 0 }]] },
+    "HTTP (MAX send)":  { "main": [[{ "node": "Postgres (mark sent)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["premium", "campaigns", "lawn"]
+}

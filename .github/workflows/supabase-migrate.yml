@@ -1,0 +1,59 @@
+name: Supabase migrate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/seed/**"
+      - "supabase/config.toml"
+      - ".github/workflows/supabase-migrate.yml"
+  workflow_dispatch:
+    inputs:
+      include_seed:
+        description: "Re-run seed.sql after migrations"
+        required: false
+        default: "false"
+
+concurrency:
+  group: supabase-migrate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply migrations to production Supabase
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      - name: Push migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase db push --include-all
+
+      - name: Apply seed (optional)
+        if: ${{ github.event.inputs.include_seed == 'true' }}
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          PSQL_HOST="db.${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co"
+          psql "host=$PSQL_HOST port=5432 user=postgres dbname=postgres sslmode=require" \
+            -v ON_ERROR_STOP=1 -f supabase/seed/seed.sql

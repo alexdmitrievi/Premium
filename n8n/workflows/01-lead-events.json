@@ -1,0 +1,148 @@
+{
+  "name": "Premium / Lead events (lead.created → notify owner)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-events",
+        "responseMode": "responseNode",
+        "options": {
+          "responseHeaders": { "values": [] },
+          "rawBody": false
+        }
+      },
+      "name": "Webhook (lead-events)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "lead-events"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.headers['x-premium-secret']}}", "operation": "equals", "value2": "={{$env.PREMIUM_INBOUND_SECRET}}" }
+          ]
+        }
+      },
+      "name": "IF (verify secret)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Unauthorized",
+        "options": { "responseCode": 401 }
+      },
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 460]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.body.type}}", "operation": "equals", "value2": "lead.created" }
+          ]
+        }
+      },
+      "name": "Switch (event type)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 240]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select l.id as lead_id, l.service_kind, l.area_value, l.area_unit, l.district, l.description, l.metadata,\n       c.id as contact_id, c.full_name, c.phone,\n       ci.channel, ci.external_id\n  from public.leads l\n  join public.contacts c on c.id = l.contact_id\n  left join public.contact_identities ci on ci.contact_id = c.id and ci.channel = l.channel\n where l.id = '{{$json.body.leadId}}'\n limit 1",
+        "options": {}
+      },
+      "name": "Postgres (load lead)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 200],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "ownerText",
+              "value": "🆕 Новый лид\nУслуга: {{$json.service_kind}}\nКлиент: {{$json.full_name || '—'}}\nТелефон: {{$json.phone || '—'}}\nПлощадь: {{$json.area_value}} {{$json.area_unit}}\nРайон: {{$json.district || '—'}}\nКанал: {{$json.channel}}\nОписание: {{$json.description || '—'}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set (owner text)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_OWNER_CHAT_ID}}",
+        "text": "={{$json.ownerText}}",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "name": "Telegram (notify owner)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1340, 120],
+      "credentials": { "telegramApi": { "id": "tg-owner", "name": "Telegram Owner Bot" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.events (type, contact_id, lead_id, payload)\nvalues ('owner.notified', '{{$json.contact_id}}', '{{$json.lead_id}}', '{}'::jsonb);"
+      },
+      "name": "Postgres (event: notified)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 280],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 200]
+    }
+  ],
+  "connections": {
+    "Webhook (lead-events)": { "main": [[{ "node": "IF (verify secret)", "type": "main", "index": 0 }]] },
+    "IF (verify secret)": {
+      "main": [
+        [{ "node": "Switch (event type)", "type": "main", "index": 0 }],
+        [{ "node": "Respond 401", "type": "main", "index": 0 }]
+      ]
+    },
+    "Switch (event type)": {
+      "main": [
+        [{ "node": "Postgres (load lead)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Postgres (load lead)": { "main": [[{ "node": "Set (owner text)", "type": "main", "index": 0 }]] },
+    "Set (owner text)": {
+      "main": [
+        [
+          { "node": "Telegram (notify owner)", "type": "main", "index": 0 },
+          { "node": "Postgres (event: notified)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Telegram (notify owner)": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["premium", "leads"]
+}

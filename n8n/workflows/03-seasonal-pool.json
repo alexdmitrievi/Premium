@@ -1,0 +1,107 @@
+{
+  "name": "Premium / Seasonal pool open (cron)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 10 1,15 5 *" }] }
+      },
+      "name": "Cron (May 1 & 15, 10:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from public.segment_for_seasonal_service('pool_cleaning', 'seasonal_pool_open', null);"
+      },
+      "name": "Postgres (segment)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": { "batchSize": 15, "options": {} },
+      "name": "SplitInBatches (15)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "seconds" },
+      "name": "Wait (2s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.channel}}", "operation": "equals", "value2": "telegram" }
+          ]
+        }
+      },
+      "name": "IF (telegram?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.external_id}}",
+        "text": "🏊 {{$json.full_name || 'Здравствуйте'}}, лето на пороге!\nПора запустить ваш бассейн: чистка чаши, фильтрация, химия — всё «под ключ».\nХотите записаться? /start",
+        "additionalFields": { "parse_mode": "HTML" }
+      },
+      "name": "Telegram (send)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1340, 200],
+      "credentials": { "telegramApi": { "id": "tg-main", "name": "Telegram Main Bot" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.MAX_API_URL}}/messages?access_token={{$env.MAX_BOT_TOKEN}}&user_id={{$json.external_id}}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"🏊 Лето на пороге — запустим ваш бассейн «под ключ»! Записать?\" }"
+      },
+      "name": "HTTP (MAX send)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.campaign_recipients (campaign_id, contact_id, channel, status, sent_at)\nselect c.id, '{{$json.contact_id}}'::uuid, '{{$json.channel}}'::messenger_channel, 'sent', now()\n  from public.campaigns c where c.code = 'seasonal_pool_open'\non conflict (campaign_id, contact_id, channel) do update set status='sent', sent_at=now();"
+      },
+      "name": "Postgres (mark sent)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 300],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    }
+  ],
+  "connections": {
+    "Cron (May 1 & 15, 10:00)": { "main": [[{ "node": "Postgres (segment)", "type": "main", "index": 0 }]] },
+    "Postgres (segment)":       { "main": [[{ "node": "SplitInBatches (15)", "type": "main", "index": 0 }]] },
+    "SplitInBatches (15)":      { "main": [[{ "node": "Wait (2s)", "type": "main", "index": 0 }]] },
+    "Wait (2s)":                { "main": [[{ "node": "IF (telegram?)", "type": "main", "index": 0 }]] },
+    "IF (telegram?)": {
+      "main": [
+        [{ "node": "Telegram (send)", "type": "main", "index": 0 }],
+        [{ "node": "HTTP (MAX send)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram (send)": { "main": [[{ "node": "Postgres (mark sent)", "type": "main", "index": 0 }]] },
+    "HTTP (MAX send)": { "main": [[{ "node": "Postgres (mark sent)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["premium", "campaigns", "pool"]
+}

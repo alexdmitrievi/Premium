@@ -1,0 +1,10 @@
+# Минимальная конфигурация Supabase CLI.
+# Полную см. https://supabase.com/docs/reference/cli/config
+
+project_id = "premium-leadgen"
+
+[db]
+major_version = 15
+
+[db.seed]
+sql_paths = ["seed/seed.sql"]

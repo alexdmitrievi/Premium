@@ -1,0 +1,50 @@
+{
+  "name": "Premium / Error watch (app_logs → Telegram alerts)",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } },
+      "name": "Cron (every 5m)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select id, level, source, message, context, created_at\n  from public.app_logs\n where level = 'error' and created_at > now() - interval '6 minutes'\n order by created_at desc\n limit 20;"
+      },
+      "name": "Postgres (recent errors)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": { "postgres": { "id": "supabase-direct", "name": "Supabase (direct)" } }
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "SplitInBatches (1)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_OWNER_CHAT_ID}}",
+        "text": "🛑 [{{$json.source}}] {{$json.message}}\n<code>{{JSON.stringify($json.context)}}</code>",
+        "additionalFields": { "parse_mode": "HTML", "disable_web_page_preview": true }
+      },
+      "name": "Telegram (alert)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [900, 300],
+      "credentials": { "telegramApi": { "id": "tg-owner", "name": "Telegram Owner Bot" } }
+    }
+  ],
+  "connections": {
+    "Cron (every 5m)":         { "main": [[{ "node": "Postgres (recent errors)", "type": "main", "index": 0 }]] },
+    "Postgres (recent errors)": { "main": [[{ "node": "SplitInBatches (1)", "type": "main", "index": 0 }]] },
+    "SplitInBatches (1)":      { "main": [[{ "node": "Telegram (alert)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["premium", "ops"]
+}
