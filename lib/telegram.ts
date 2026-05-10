@@ -2,7 +2,9 @@ import { env } from './env';
 
 const TG_API = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
 
-export type InlineButton = { text: string; callback_data: string };
+export type InlineButton =
+  | { text: string; callback_data: string }
+  | { text: string; url: string };
 
 export type TgUpdate = {
   update_id: number;
@@ -83,8 +85,16 @@ export function removeKeyboard() {
   return { remove_keyboard: true };
 }
 
-// Главное меню (новая версия с Мои заказы / Реферал / Помощь)
-export function mainMenuKeyboard() {
+// Выбор типа клиента (показывается на первом /start, если customer_type ещё не выставлен)
+export function customerTypeKeyboard() {
+  return inlineKeyboard([[
+    { text: '🏡 Для частного дома',         callback_data: 'ctype:b2c' },
+    { text: '🏗 Для компании / стройки',    callback_data: 'ctype:b2b' },
+  ]]);
+}
+
+// Главное меню для физлиц (B2C). 4 услуги + сервисные кнопки.
+export function mainMenuB2cKeyboard() {
   return inlineKeyboard([
     [
       { text: '🌱 Покос',         callback_data: 'svc:lawn_mowing' },
@@ -103,6 +113,32 @@ export function mainMenuKeyboard() {
       { text: '☎️ Оператор',      callback_data: 'nav:operator' },
     ],
   ]);
+}
+
+// Меню B2B — те же услуги, но первой кнопкой менеджер,
+// плюс возможность сменить тип клиента, если кликнули по ошибке.
+export function mainMenuB2bKeyboard() {
+  return inlineKeyboard([
+    [{ text: '🤝 Связаться с менеджером', callback_data: 'nav:operator' }],
+    [
+      { text: '🌱 Покос',         callback_data: 'svc:lawn_mowing' },
+      { text: '🪓 Расчистка',     callback_data: 'svc:land_clearing' },
+    ],
+    [
+      { text: '🪚 Спил / пни',     callback_data: 'svc:tree_cutting' },
+      { text: '🚮 Вывоз мусора',   callback_data: 'svc:debris_removal' },
+    ],
+    [
+      { text: '📋 Мои заказы',    callback_data: 'nav:orders' },
+      { text: '❔ Помощь',        callback_data: 'nav:help' },
+    ],
+    [{ text: '🔄 Сменить тип клиента', callback_data: 'nav:reset_ctype' }],
+  ]);
+}
+
+// Алиас для обратной совместимости (используется в местах, где B2C по умолчанию).
+export function mainMenuKeyboard() {
+  return mainMenuB2cKeyboard();
 }
 
 // Клавиатура выбора площади (для покоса/скарификации/расчистки)

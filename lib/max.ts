@@ -41,13 +41,18 @@ async function maxRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type MaxButton = { type: 'callback' | 'link'; text: string; payload?: string; url?: string };
 
+// MAX не рендерит HTML — стрипаем теги, чтобы пользователь не видел сырые `<b>...</b>`.
+function stripHtml(s: string): string {
+  return s.replace(/<\/?(?:b|i|u|s|code|pre|a)(?:\s[^>]*)?>/gi, '');
+}
+
 export function sendMaxMessage(params: {
   chatId?: number;
   userId?: number;
   text: string;
   buttons?: MaxButton[][];
 }) {
-  const body: Record<string, unknown> = { text: params.text };
+  const body: Record<string, unknown> = { text: stripHtml(params.text) };
   if (params.buttons && params.buttons.length > 0) {
     body.attachments = [{
       type: 'inline_keyboard',
@@ -64,8 +69,16 @@ export function sendMaxMessage(params: {
   });
 }
 
-// MAX — кнопки без декоративных эмодзи (более «строгий» стиль платформы)
-export function maxMainMenuButtons(): MaxButton[][] {
+// MAX — выбор типа клиента (B2C / B2B) на первом /start.
+export function maxCustomerTypeButtons(): MaxButton[][] {
+  return [[
+    { type: 'callback', text: 'Для частного дома',         payload: 'ctype:b2c' },
+    { type: 'callback', text: 'Для компании / стройки',    payload: 'ctype:b2b' },
+  ]];
+}
+
+// MAX — главное меню B2C (без декоративных эмодзи — строгий стиль платформы).
+export function maxMainMenuB2cButtons(): MaxButton[][] {
   return [
     [
       { type: 'callback', text: 'Покос газона',           payload: 'svc:lawn_mowing' },
@@ -84,6 +97,31 @@ export function maxMainMenuButtons(): MaxButton[][] {
       { type: 'callback', text: 'Оператор',               payload: 'nav:operator' },
     ],
   ];
+}
+
+// MAX — главное меню B2B.
+export function maxMainMenuB2bButtons(): MaxButton[][] {
+  return [
+    [{ type: 'callback', text: 'Связаться с менеджером', payload: 'nav:operator' }],
+    [
+      { type: 'callback', text: 'Покос газона',          payload: 'svc:lawn_mowing' },
+      { type: 'callback', text: 'Расчистка участка',     payload: 'svc:land_clearing' },
+    ],
+    [
+      { type: 'callback', text: 'Спил / пни',            payload: 'svc:tree_cutting' },
+      { type: 'callback', text: 'Вывоз мусора',          payload: 'svc:debris_removal' },
+    ],
+    [
+      { type: 'callback', text: 'Мои заказы',            payload: 'nav:orders' },
+      { type: 'callback', text: 'Помощь',                payload: 'nav:help' },
+    ],
+    [{ type: 'callback', text: 'Сменить тип клиента',    payload: 'nav:reset_ctype' }],
+  ];
+}
+
+// Алиас для обратной совместимости (по умолчанию — B2C).
+export function maxMainMenuButtons(): MaxButton[][] {
+  return maxMainMenuB2cButtons();
 }
 
 export function maxAreaBucketsButtons(scope: 'lawn' | 'land' | 'pool' = 'lawn'): MaxButton[][] {
