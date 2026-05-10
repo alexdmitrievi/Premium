@@ -136,7 +136,6 @@ export async function isInboxDuplicate(channel: Channel, externalId: string, pay
   const { error } = await sb
     .from('webhook_inbox')
     .insert({ channel, external_id: externalId, payload })
-    // @ts-expect-error: onConflict у insert типизирован, но для clarity:
     .select();
   if (!error) return false; // вставили — это новый
   // 23505 = unique_violation в Postgres

@@ -1,7 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   TgUpdate, TgMessage, TgUser,
-  sendMessage, mainMenuKeyboard, inlineKeyboard,
+  sendMessage, mainMenuB2cKeyboard, mainMenuB2bKeyboard,
+  customerTypeKeyboard, inlineKeyboard,
   replyKeyboardRequestContact, removeKeyboard, answerCallbackQuery,
   areaBucketsKeyboard, districtKeyboard, whenKeyboard, confirmKeyboard,
   postOrderKeyboard, backToHomeKeyboard, orderCardKeyboard, referralKeyboard,
@@ -26,7 +27,9 @@ import {
   listMyOrders, getOrder, cancelMyOrder, updateOrderDate,
   ensureReferralCode, recordReferralVisit, getReferralStats, getReferralList,
   computeDiscount, applyDiscountToLead, repeatOrder,
+  getCustomerType, setCustomerType,
 } from '../../lib/orders';
+import type { CustomerType } from '../../lib/funnels';
 
 const CHANNEL: Channel = 'telegram';
 const SHARE_TEXT = 'Премиум — уход за участком в Омске. По ссылке +500 ₽ скидки нам обоим';
@@ -36,8 +39,13 @@ type Ctx = {
   fromUser: TgUser;
   contactId: string;
   identityId: string;
+  customerType: CustomerType | null;
   session: { funnel: string; step: string; state: SessionState };
 };
+
+function menuKeyboardFor(ctx: Ctx) {
+  return ctx.customerType === 'b2b' ? mainMenuB2bKeyboard() : mainMenuB2cKeyboard();
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') { res.status(405).send('Method Not Allowed'); return; }
@@ -83,12 +91,16 @@ async function loadCtx(from: TgUser, chatId: number, opts: { phone?: string } = 
     phone: opts.phone,
     sourceCode: 'telegram_bot',
   });
-  const session = await getOrCreateSession(identity_id, CHANNEL);
+  const [session, customerType] = await Promise.all([
+    getOrCreateSession(identity_id, CHANNEL),
+    getCustomerType(contact_id),
+  ]);
   return {
     chatId,
     fromUser: from,
     contactId: contact_id,
     identityId: identity_id,
+    customerType,
     session: {
       funnel: session.funnel,
       step:   session.step,
@@ -120,7 +132,7 @@ async function onMessage(m: TgMessage) {
     const code = refMatch[1]!.toUpperCase();
     const refId = await recordReferralVisit(ctx.contactId, code);
     if (refId) {
-      await sendMessage(ctx.chatId, UI.referralActivated(), { reply_markup: mainMenuKeyboard() });
+      await sendMessage(ctx.chatId, UI.referralActivated(), { reply_markup: menuKeyboardFor(ctx) });
     } else {
       await showHome(ctx);
     }
@@ -162,6 +174,7 @@ async function onCallback(cb: NonNullable<TgUpdate['callback_query']>) {
   const arg = rest.join(':');
 
   switch (scope) {
+    case 'ctype':     return pickCustomerType(ctx, action === 'b2b' ? 'b2b' : 'b2c');
     case 'svc':       return startOrder(ctx, action as ServiceKind);
     case 'area':      return setArea(ctx, action as 'lawn'|'land'|'pool', arg);
     case 'dist':      return setDistrict(ctx, action!);
@@ -179,18 +192,50 @@ async function onCallback(cb: NonNullable<TgUpdate['callback_query']>) {
         case 'referral_list':  return showReferralList(ctx);
         case 'help':           return showHelp(ctx);
         case 'operator':       return showOperator(ctx);
+        case 'reset_ctype':    return resetCustomerType(ctx);
       }
     }
   }
+}
+
+async function resetCustomerType(ctx: Ctx) {
+  ctx.customerType = null;
+  await sendMessage(ctx.chatId, 'Сбросил тип клиента. Выберите заново:', { reply_markup: customerTypeKeyboard() });
+  await updateSession(ctx.identityId, { funnel: 'main', step: 'pick_customer_type', state: { screen: 'pick_customer_type' } });
 }
 
 // ---------------------------------------------------------------------------
 // Экраны верхнего уровня
 // ---------------------------------------------------------------------------
 async function showHome(ctx: Ctx) {
-  await updateSession(ctx.identityId, { funnel: 'main', step: 'service', state: { screen: 'home' } });
-  await sendMessage(ctx.chatId, UI.homeWelcome(ctx.fromUser.first_name));
-  await sendMessage(ctx.chatId, UI.homeMenu, { reply_markup: mainMenuKeyboard() });
+  // Тип клиента ещё не выбран — показываем audience-picker.
+  if (!ctx.customerType) {
+    await updateSession(ctx.identityId, {
+      funnel: 'main', step: 'pick_customer_type', state: { screen: 'pick_customer_type' },
+    });
+    await sendMessage(ctx.chatId, UI.audiencePicker(ctx.fromUser.first_name, env.BOT_BRAND_NAME), {
+      reply_markup: customerTypeKeyboard(),
+    });
+    return;
+  }
+
+  await updateSession(ctx.identityId, { funnel: 'main', step: 'service', state: { screen: 'home', customerType: ctx.customerType } });
+  await sendMessage(ctx.chatId, UI.homeWelcome(ctx.fromUser.first_name, env.BOT_BRAND_NAME));
+  if (ctx.customerType === 'b2b') {
+    await sendMessage(ctx.chatId, UI.homeMenuB2b, { reply_markup: mainMenuB2bKeyboard() });
+  } else {
+    await sendMessage(ctx.chatId, UI.homeMenu, { reply_markup: mainMenuB2cKeyboard() });
+  }
+}
+
+async function pickCustomerType(ctx: Ctx, type: CustomerType) {
+  await setCustomerType(ctx.contactId, type);
+  ctx.customerType = type;
+  const ackText = type === 'b2b'
+    ? '👌 Принято — оформляем для компании / стройки. Менеджер подтвердит цены и условия.'
+    : '👌 Принято — подбираю меню для частного дома.';
+  await sendMessage(ctx.chatId, ackText);
+  await showHome(ctx);
 }
 
 async function showHelp(ctx: Ctx) {
@@ -205,7 +250,7 @@ async function showOperator(ctx: Ctx, leadId?: string) {
 async function showMyOrders(ctx: Ctx) {
   const orders = await listMyOrders(ctx.contactId, 5);
   if (orders.length === 0) {
-    await sendMessage(ctx.chatId, UI.myOrdersEmpty, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(ctx.chatId, UI.myOrdersEmpty, { reply_markup: menuKeyboardFor(ctx) });
     return;
   }
   await sendMessage(ctx.chatId, UI.myOrdersHeader);
@@ -390,7 +435,7 @@ async function editField(ctx: Ctx, field: string) {
 
 async function cancelDuringOrder(ctx: Ctx) {
   await updateSession(ctx.identityId, { funnel: 'main', step: 'service', state: { screen: 'home' } });
-  await sendMessage(ctx.chatId, 'Отменено. Возвращаю в меню.', { reply_markup: mainMenuKeyboard() });
+  await sendMessage(ctx.chatId, 'Отменено. Возвращаю в меню.', { reply_markup: menuKeyboardFor(ctx) });
 }
 
 async function confirmOrder(ctx: Ctx) {
@@ -622,7 +667,7 @@ async function advanceText(ctx: Ctx, text: string, m: TgMessage) {
   }
 
   // Иначе — не понимаем, показываем меню
-  await sendMessage(ctx.chatId, UI.help, { reply_markup: mainMenuKeyboard() });
+  await sendMessage(ctx.chatId, UI.help, { reply_markup: menuKeyboardFor(ctx) });
 }
 
 async function skipPhotos(ctx: Ctx) {

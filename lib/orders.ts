@@ -2,6 +2,7 @@
 // "Повторить заказ", "Скидка/бонусы". Используется и в Telegram, и в MAX.
 
 import { supabaseAdmin, type Channel, type ServiceKind } from './supabase';
+import type { CustomerType } from './funnels';
 
 export type OrderRow = {
   id: string;
@@ -87,6 +88,21 @@ export async function updateOrderDate(
   }).eq('id', leadId);
   if (e2) throw e2;
   return true;
+}
+
+// ----------------------------- Customer type (B2C / B2B) -----------------
+export async function getCustomerType(contactId: string): Promise<CustomerType | null> {
+  const { data, error } = await supabaseAdmin()
+    .from('contacts').select('customer_type').eq('id', contactId).maybeSingle();
+  if (error) throw error;
+  const v = (data as { customer_type: CustomerType | null } | null)?.customer_type ?? null;
+  return v;
+}
+
+export async function setCustomerType(contactId: string, type: CustomerType): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .rpc('set_customer_type', { p_contact_id: contactId, p_customer_type: type });
+  if (error) throw error;
 }
 
 // ----------------------------- Referral ----------------------------------

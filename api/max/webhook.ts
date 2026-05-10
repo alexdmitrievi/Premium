@@ -1,8 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   MaxUpdate, MaxUser, sendMaxMessage,
-  maxMainMenuButtons, maxAreaBucketsButtons, maxDistrictButtons, maxWhenButtons,
+  maxMainMenuB2cButtons, maxMainMenuB2bButtons, maxCustomerTypeButtons,
+  maxAreaBucketsButtons, maxDistrictButtons, maxWhenButtons,
   maxConfirmButtons, maxPostOrderButtons, maxOrderCardButtons, maxReferralButtons,
+  type MaxButton,
 } from '../../lib/max';
 import { env } from '../../lib/env';
 import { verifyHmac } from '../../lib/verify';
@@ -24,7 +26,9 @@ import {
   listMyOrders, getOrder, cancelMyOrder, updateOrderDate,
   ensureReferralCode, recordReferralVisit, getReferralStats, getReferralList,
   computeDiscount, applyDiscountToLead, repeatOrder,
+  getCustomerType, setCustomerType,
 } from '../../lib/orders';
+import type { CustomerType } from '../../lib/funnels';
 
 const CHANNEL: Channel = 'max';
 
@@ -34,12 +38,17 @@ type Ctx = {
   fromUser: MaxUser;
   contactId: string;
   identityId: string;
+  customerType: CustomerType | null;
   session: { funnel: string; step: string; state: SessionState };
 };
 
 // Универсальный шорткат отправки сообщения с кнопками или без.
-async function send(ctx: Ctx, text: string, buttons?: ReturnType<typeof maxMainMenuButtons>) {
+async function send(ctx: Ctx, text: string, buttons?: MaxButton[][]) {
   await sendMaxMessage({ userId: ctx.userId, chatId: ctx.chatId, text, buttons });
+}
+
+function menuButtonsFor(ctx: Ctx): MaxButton[][] {
+  return ctx.customerType === 'b2b' ? maxMainMenuB2bButtons() : maxMainMenuB2cButtons();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -88,10 +97,14 @@ async function loadCtx(from: MaxUser, chatId?: number): Promise<Ctx> {
     fullName: from.name,
     sourceCode: 'max_bot',
   });
-  const session = await getOrCreateSession(identity_id, CHANNEL);
+  const [session, customerType] = await Promise.all([
+    getOrCreateSession(identity_id, CHANNEL),
+    getCustomerType(contact_id),
+  ]);
   return {
     userId: from.user_id, chatId,
     fromUser: from, contactId: contact_id, identityId: identity_id,
+    customerType,
     session: {
       funnel: session.funnel, step: session.step,
       state: (session.state ?? {}) as SessionState,
@@ -115,7 +128,7 @@ async function onMessage(m: NonNullable<MaxUpdate['message']>) {
     const code = refMatch[1]!.toUpperCase();
     const refId = await recordReferralVisit(ctx.contactId, code);
     if (refId) {
-      await send(ctx, UI.referralActivated(), maxMainMenuButtons());
+      await send(ctx, UI.referralActivated(), menuButtonsFor(ctx));
     } else {
       await showHome(ctx);
     }
@@ -145,6 +158,7 @@ async function onCallback(cb: NonNullable<MaxUpdate['callback']>) {
   const arg = rest.join(':');
 
   switch (scope) {
+    case 'ctype':     return pickCustomerType(ctx, action === 'b2b' ? 'b2b' : 'b2c');
     case 'svc':       return startOrder(ctx, action as ServiceKind);
     case 'area':      return setArea(ctx, action as 'lawn'|'land'|'pool', arg);
     case 'dist':      return setDistrict(ctx, action!);
@@ -159,17 +173,41 @@ async function onCallback(cb: NonNullable<MaxUpdate['callback']>) {
         case 'orders':         return showMyOrders(ctx);
         case 'referral':       return showReferral(ctx);
         case 'referral_list':  return showReferralList(ctx);
-        case 'help':           return send(ctx, UI.help, maxMainMenuButtons());
+        case 'help':           return send(ctx, UI.help, menuButtonsFor(ctx));
         case 'operator':       return showOperator(ctx);
+        case 'reset_ctype':    return resetCustomerType(ctx);
       }
     }
   }
 }
 
+async function pickCustomerType(ctx: Ctx, type: CustomerType) {
+  await setCustomerType(ctx.contactId, type);
+  ctx.customerType = type;
+  const ack = type === 'b2b'
+    ? 'Принято — оформляем для компании / стройки. Менеджер подтвердит цены и условия.'
+    : 'Принято — подбираю меню для частного дома.';
+  await send(ctx, ack);
+  await showHome(ctx);
+}
+
+async function resetCustomerType(ctx: Ctx) {
+  ctx.customerType = null;
+  await updateSession(ctx.identityId, { funnel: 'main', step: 'pick_customer_type', state: { screen: 'pick_customer_type' } });
+  await send(ctx, 'Сбросил тип клиента. Выберите заново:', maxCustomerTypeButtons());
+}
+
 // ---------------------------------------------------------------------------
 async function showHome(ctx: Ctx) {
-  await updateSession(ctx.identityId, { funnel: 'main', step: 'service', state: { screen: 'home' } });
-  await send(ctx, UI.homeWelcome(ctx.fromUser.name, /* strict */ true), maxMainMenuButtons());
+  if (!ctx.customerType) {
+    await updateSession(ctx.identityId, {
+      funnel: 'main', step: 'pick_customer_type', state: { screen: 'pick_customer_type' },
+    });
+    await send(ctx, UI.audiencePicker(ctx.fromUser.name, env.BOT_BRAND_NAME, /* strict */ true), maxCustomerTypeButtons());
+    return;
+  }
+  await updateSession(ctx.identityId, { funnel: 'main', step: 'service', state: { screen: 'home', customerType: ctx.customerType } });
+  await send(ctx, UI.homeWelcome(ctx.fromUser.name, env.BOT_BRAND_NAME, /* strict */ true), menuButtonsFor(ctx));
 }
 
 async function showOperator(ctx: Ctx, leadId?: string) {
@@ -180,7 +218,7 @@ async function showOperator(ctx: Ctx, leadId?: string) {
 async function showMyOrders(ctx: Ctx) {
   const orders = await listMyOrders(ctx.contactId, 5);
   if (orders.length === 0) {
-    await send(ctx, UI.myOrdersEmpty, maxMainMenuButtons()); return;
+    await send(ctx, UI.myOrdersEmpty, menuButtonsFor(ctx)); return;
   }
   await send(ctx, UI.myOrdersHeader);
   for (const o of orders) {
@@ -321,7 +359,7 @@ async function editField(ctx: Ctx, field: string) {
 
 async function cancelDuringOrder(ctx: Ctx) {
   await updateSession(ctx.identityId, { funnel: 'main', step: 'service', state: { screen: 'home' } });
-  await send(ctx, 'Отменено. Возвращаю в меню.', maxMainMenuButtons());
+  await send(ctx, 'Отменено. Возвращаю в меню.', menuButtonsFor(ctx));
 }
 
 async function confirmOrder(ctx: Ctx) {
@@ -500,5 +538,5 @@ async function advanceText(ctx: Ctx, text: string) {
     return;
   }
 
-  await send(ctx, UI.help, maxMainMenuButtons());
+  await send(ctx, UI.help, menuButtonsFor(ctx));
 }
